@@ -136,7 +136,7 @@ def get_oracle_table_data_to_csv(table_name: str):
 
         try:
 
-            # generate queries for insert
+            # select query
             _query = f"SELECT * FROM {table_name}"
 
             # save to dataframe
@@ -227,3 +227,51 @@ def load_data_file_s3_to_postgres_db(table_name: str):
                 time.sleep(1)  # Add a short delay before exiting
         except Exception as e:
             log.error(f'Error stopping SSH tunnel: {e}', exc_info=True)
+
+
+def get_dataframe_from_database_table(database: str, table_name: str ):
+
+    result_df = None
+    tunnel = None
+    log = logging.getLogger(os.path.basename(__file__))
+
+    try:
+        # create tunnel
+        tunnel = get_ssh_tunnel(service=database)
+        tunnel.start()
+        local_port = str(tunnel.local_bind_port)
+
+        # create session
+        session = create_session(db=database, local_port=local_port)
+
+        try:
+
+            # generate
+            _query = f"SELECT * FROM {table_name}"
+
+            # save to dataframe
+            result_df = pd.read_sql_query(_query, session.bind)
+
+            log.info(f'Table data: {table_name} saved to DataFrame')
+
+        except (exc.SQLAlchemyError, StatementError, DBAPIError) as e:
+            log.error(f'Error executing SQL query: {e}', exc_info=True)
+            session.rollback()  # Rollback changes in case of an error
+
+        finally:
+            if session is not None:
+                session.close()
+
+    except Exception as e:
+        log.error(f'Error setting up database ORACLE connection: {e}', exc_info=True)
+
+    finally:
+        try:
+            if tunnel is not None:
+                tunnel.stop()
+                time.sleep(1)  # Add a short delay before exiting
+        except Exception as e:
+            log.error(f'Error stopping SSH tunnel: {e}', exc_info=True)
+
+    return result_df
+
